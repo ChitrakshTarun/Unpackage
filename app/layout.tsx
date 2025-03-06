@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
+import { ThemeProvider } from "@/providers/ThemeProvider";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/providers/ThemeProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Unpackage",
-  description: "Account Data ZIP Unpackager",
+  description: "Account Data ZIP Unpackager Thingamajig I dunnaur",
 };
 
 export default function RootLayout({
