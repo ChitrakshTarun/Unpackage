@@ -28,8 +28,6 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
   try {
     const zipData = e.data.file;
     const files = await processZip(zipData);
-
-    // Extract the frequency data from the processed files
     const chatMessagesFile = files.find((f) => f.path.includes("request/site_history/chat_messages.csv"));
     const minutesWatchedFile = files.find((f) => f.path.includes("request/site_history/minute_watched.csv"));
 
@@ -37,7 +35,6 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
     const minutesWatchedFrequency = minutesWatchedFile?.minutesWatchedStats || {};
     const wordFrequency = chatMessagesFile?.wordFrequency || {};
 
-    // Return all frequency maps along with the files
     self.postMessage({
       files,
       chatChannelFrequency,
@@ -98,6 +95,7 @@ async function processZipEntry(zipEntry: JSZip.JSZipObject, path: string): Promi
   }
 }
 
+// COUNTS MESSAGES/STREAMER AND
 async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: FileInfo): Promise<void> {
   console.time("processChatMessages");
   const content = await zipEntry.async("string");
@@ -164,21 +162,14 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
 function processTextForWordFrequency(text: string, wordCounts: Record<string, number>): void {
   if (!text) return;
 
-  // Convert to lowercase and trim
   const cleanText = text.toLowerCase().trim();
 
-  // Remove all punctuation and split by whitespace
-  // This treats "hello", hello!, and "hello" all as the same word
   const words = cleanText
-    .replace(/[^\p{L}\p{N}\s]/gu, "") // Remove all punctuation and symbols
-    .split(/\s+/) // Split by whitespace
-    .filter((word) => word.length > 0); // Remove empty strings
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .split(/\s+/)
+    .filter((word) => word.length > 0);
 
-  // Count each word
   for (const word of words) {
-    // Skip single characters (optional)
-    if (word.length < 2) continue;
-
     wordCounts[word] = (wordCounts[word] || 0) + 1;
   }
 }
@@ -195,25 +186,20 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   const headers = parseCSVLine(lines[0]);
   fileInfo.headers = headers;
 
-  // Find the channel_name column
   const channelNameIndex = headers.findIndex((h) => h.toLowerCase() === "channel_name");
   const channelNameColIndex = channelNameIndex !== -1 ? channelNameIndex : -1;
 
-  // Find the minutes_watched_unadjusted column
   const minutesWatchedIndex = headers.findIndex((h) => h.toLowerCase() === "minutes_watched_unadjusted");
   const minutesWatchedColIndex = minutesWatchedIndex !== -1 ? minutesWatchedIndex : -1;
 
-  // Check if we found both required columns
   if (channelNameColIndex === -1 || minutesWatchedColIndex === -1) {
     console.error("Could not find required columns in minute_watched.csv");
     fileInfo.error = "Missing required columns: channel_name and/or minutes_watched_unadjusted";
     return;
   }
 
-  // Track channels and their minutes watched
   const minutesWatchedCounts: Record<string, number> = {};
 
-  // Process the file in chunks
   for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
     const start = i * CHUNK_SIZE + 1;
     const end = Math.min((i + 1) * CHUNK_SIZE + 1, lines.length);
@@ -226,7 +212,6 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
         const channelName = values[channelNameColIndex] || "unknown";
         const minutesWatchedStr = values[minutesWatchedColIndex] || "0";
 
-        // Convert minutes watched to a number
         let minutesWatched = 0;
         try {
           minutesWatched = parseFloat(minutesWatchedStr);
@@ -236,20 +221,17 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
           console.error(e);
         }
 
-        // Add to the total for this channel
         minutesWatchedCounts[channelName] = (minutesWatchedCounts[channelName] || 0) + minutesWatched;
       } catch (e) {
         console.error(`Error processing line ${j}:`, e);
       }
     }
 
-    // Allow other tasks to run between chunks
     if (i < Math.ceil(lines.length / CHUNK_SIZE) - 1) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
 
-  // Store the minutes watched stats in the file info
   fileInfo.minutesWatchedStats = minutesWatchedCounts;
 
   console.timeEnd("processMinutesWatched");

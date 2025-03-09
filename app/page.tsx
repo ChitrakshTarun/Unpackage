@@ -34,7 +34,7 @@ export default function TwitchDataViewer() {
     let worker: Worker | null = null;
 
     try {
-      worker = new Worker(new URL("@/workers/twitch/zipWorker.ts", import.meta.url));
+      worker = new Worker(new URL("@/public/workers/zipWorker.ts", import.meta.url));
 
       worker.onmessage = (e: MessageEvent<WorkerData>): void => {
         if (e.data.error) {
