@@ -7,6 +7,7 @@ interface FileInfo {
   data?: Record<string, string>[];
   channelStats?: Record<string, number>;
   minutesWatchedStats?: Record<string, number>;
+  wordFrequency?: Record<string, number>;
   error?: string;
 }
 
@@ -18,6 +19,7 @@ interface WorkerResponseData {
   files?: FileInfo[];
   chatChannelFrequency?: Record<string, number>;
   minutesWatchedFrequency?: Record<string, number>;
+  wordFrequency?: Record<string, number>;
   error?: string;
 }
 
@@ -32,12 +34,14 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
 
     const chatChannelFrequency = chatMessagesFile?.channelStats || {};
     const minutesWatchedFrequency = minutesWatchedFile?.minutesWatchedStats || {};
+    const wordFrequency = chatMessagesFile?.wordFrequency || {};
 
-    // Return both frequency maps along with the files
+    // Return all frequency maps along with the files
     self.postMessage({
       files,
       chatChannelFrequency,
       minutesWatchedFrequency,
+      wordFrequency,
     } as WorkerResponseData);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -108,8 +112,15 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
   const channelIndex = headers.findIndex((h) => h.toLowerCase() === "channel");
   const channelColIndex = channelIndex !== -1 ? channelIndex : 10;
 
+  // Find the body column index
+  const bodyIndex = headers.findIndex((h) => h.toLowerCase() === "body_full");
+  const bodyColIndex = bodyIndex !== -1 ? bodyIndex : -1;
+
   // Track channels and their counts
   const channelCounts: Record<string, number> = {};
+
+  // Track word frequencies
+  const wordCounts: Record<string, number> = {};
 
   // Process the file in chunks
   for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
@@ -123,6 +134,12 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
 
         const channel = values[channelColIndex] || "unknown";
         channelCounts[channel] = (channelCounts[channel] || 0) + 1;
+
+        // Process body text for word frequency if the column exists
+        if (bodyColIndex !== -1 && values.length > bodyColIndex) {
+          const bodyText = values[bodyColIndex] || "";
+          processTextForWordFrequency(bodyText, wordCounts);
+        }
       } catch (e) {
         console.error(`Error processing line ${j}:`, e);
       }
@@ -137,15 +154,32 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
   // Store the channel counts in the file info
   fileInfo.channelStats = channelCounts;
 
-  // Log the global channel counts
-  console.log("Chat messages channel frequency:");
-  Object.entries(channelCounts)
-    .sort((a, b) => b[1] - a[1]) // Sort by count, descending
-    .forEach(([channel, count]) => {
-      console.log(`${channel}: ${count} entries`);
-    });
+  // Store the word frequency in the file info
+  fileInfo.wordFrequency = wordCounts;
 
   console.timeEnd("processChatMessages");
+}
+
+function processTextForWordFrequency(text: string, wordCounts: Record<string, number>): void {
+  if (!text) return;
+
+  // Convert to lowercase and trim
+  const cleanText = text.toLowerCase().trim();
+
+  // Remove all punctuation and split by whitespace
+  // This treats "hello", hello!, and "hello" all as the same word
+  const words = cleanText
+    .replace(/[^\p{L}\p{N}\s]/gu, "") // Remove all punctuation and symbols
+    .split(/\s+/) // Split by whitespace
+    .filter((word) => word.length > 0); // Remove empty strings
+
+  // Count each word
+  for (const word of words) {
+    // Skip single characters (optional)
+    if (word.length < 2) continue;
+
+    wordCounts[word] = (wordCounts[word] || 0) + 1;
+  }
 }
 
 async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: FileInfo): Promise<void> {
@@ -216,14 +250,6 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
 
   // Store the minutes watched stats in the file info
   fileInfo.minutesWatchedStats = minutesWatchedCounts;
-
-  // Log the minutes watched by channel
-  console.log("Minutes watched by channel:");
-  Object.entries(minutesWatchedCounts)
-    .sort((a, b) => b[1] - a[1]) // Sort by minutes watched, descending
-    .forEach(([channel, minutes]) => {
-      console.log(`${channel}: ${minutes.toFixed(2)} minutes`);
-    });
 
   console.timeEnd("processMinutesWatched");
 }
