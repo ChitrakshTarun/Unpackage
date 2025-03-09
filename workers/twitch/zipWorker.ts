@@ -4,6 +4,9 @@ interface FileInfo {
   path: string;
   type: string;
   headers?: string[];
+  data?: Record<string, string>[];
+  channelStats?: Record<string, number>;
+  minutesWatchedStats?: Record<string, number>;
   error?: string;
 }
 
@@ -13,6 +16,8 @@ interface WorkerMessageData {
 
 interface WorkerResponseData {
   files?: FileInfo[];
+  chatChannelFrequency?: Record<string, number>;
+  minutesWatchedFrequency?: Record<string, number>;
   error?: string;
 }
 
@@ -20,7 +25,20 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
   try {
     const zipData = e.data.file;
     const files = await processZip(zipData);
-    self.postMessage({ files } as WorkerResponseData);
+
+    // Extract the frequency data from the processed files
+    const chatMessagesFile = files.find((f) => f.path.includes("request/site_history/chat_messages.csv"));
+    const minutesWatchedFile = files.find((f) => f.path.includes("request/site_history/minute_watched.csv"));
+
+    const chatChannelFrequency = chatMessagesFile?.channelStats || {};
+    const minutesWatchedFrequency = minutesWatchedFile?.minutesWatchedStats || {};
+
+    // Return both frequency maps along with the files
+    self.postMessage({
+      files,
+      chatChannelFrequency,
+      minutesWatchedFrequency,
+    } as WorkerResponseData);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     self.postMessage({ error: errorMessage } as WorkerResponseData);
@@ -54,11 +72,12 @@ async function processZipEntry(zipEntry: JSZip.JSZipObject, path: string): Promi
 
   try {
     if (extension === "csv") {
-      const content = await zipEntry.async("string");
-      const lines = content.split("\n");
-      if (lines.length > 0) {
-        const headers = parseCSVLine(lines[0]);
-        fileInfo.headers = headers;
+      if (path.includes("request/site_history/chat_messages.csv")) {
+        await processChatMessagesFile(zipEntry, fileInfo);
+      } else if (path.includes("request/site_history/minute_watched.csv")) {
+        await processMinutesWatchedFile(zipEntry, fileInfo);
+      } else {
+        await processRegularCsvFile(zipEntry, fileInfo);
       }
     } else if (extension === "json") {
       fileInfo.type = "json";
@@ -74,6 +93,176 @@ async function processZipEntry(zipEntry: JSZip.JSZipObject, path: string): Promi
   }
 }
 
+async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: FileInfo): Promise<void> {
+  console.time("processChatMessages");
+  const content = await zipEntry.async("string");
+
+  const CHUNK_SIZE = 10000;
+  const lines = content.split("\n").filter((line) => line.trim() !== "");
+
+  if (lines.length === 0) return;
+
+  const headers = parseCSVLine(lines[0]);
+  fileInfo.headers = headers;
+
+  const channelIndex = headers.findIndex((h) => h.toLowerCase() === "channel");
+  const channelColIndex = channelIndex !== -1 ? channelIndex : 10;
+
+  // Track channels and their counts
+  const channelCounts: Record<string, number> = {};
+
+  // Process the file in chunks
+  for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
+    const start = i * CHUNK_SIZE + 1;
+    const end = Math.min((i + 1) * CHUNK_SIZE + 1, lines.length);
+
+    for (let j = start; j < end; j++) {
+      try {
+        const values = parseCSVLine(lines[j]);
+        if (values.length <= channelColIndex) continue;
+
+        const channel = values[channelColIndex] || "unknown";
+        channelCounts[channel] = (channelCounts[channel] || 0) + 1;
+      } catch (e) {
+        console.error(`Error processing line ${j}:`, e);
+      }
+    }
+
+    // Allow other tasks to run between chunks
+    if (i < Math.ceil(lines.length / CHUNK_SIZE) - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  // Store the channel counts in the file info
+  fileInfo.channelStats = channelCounts;
+
+  // Log the global channel counts
+  console.log("Chat messages channel frequency:");
+  Object.entries(channelCounts)
+    .sort((a, b) => b[1] - a[1]) // Sort by count, descending
+    .forEach(([channel, count]) => {
+      console.log(`${channel}: ${count} entries`);
+    });
+
+  console.timeEnd("processChatMessages");
+}
+
+async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: FileInfo): Promise<void> {
+  console.time("processMinutesWatched");
+  const content = await zipEntry.async("string");
+
+  const CHUNK_SIZE = 10000;
+  const lines = content.split("\n").filter((line) => line.trim() !== "");
+
+  if (lines.length === 0) return;
+
+  const headers = parseCSVLine(lines[0]);
+  fileInfo.headers = headers;
+
+  // Find the channel_name column
+  const channelNameIndex = headers.findIndex((h) => h.toLowerCase() === "channel_name");
+  const channelNameColIndex = channelNameIndex !== -1 ? channelNameIndex : -1;
+
+  // Find the minutes_watched_unadjusted column
+  const minutesWatchedIndex = headers.findIndex((h) => h.toLowerCase() === "minutes_watched_unadjusted");
+  const minutesWatchedColIndex = minutesWatchedIndex !== -1 ? minutesWatchedIndex : -1;
+
+  // Check if we found both required columns
+  if (channelNameColIndex === -1 || minutesWatchedColIndex === -1) {
+    console.error("Could not find required columns in minute_watched.csv");
+    fileInfo.error = "Missing required columns: channel_name and/or minutes_watched_unadjusted";
+    return;
+  }
+
+  // Track channels and their minutes watched
+  const minutesWatchedCounts: Record<string, number> = {};
+
+  // Process the file in chunks
+  for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
+    const start = i * CHUNK_SIZE + 1;
+    const end = Math.min((i + 1) * CHUNK_SIZE + 1, lines.length);
+
+    for (let j = start; j < end; j++) {
+      try {
+        const values = parseCSVLine(lines[j]);
+        if (values.length <= Math.max(channelNameColIndex, minutesWatchedColIndex)) continue;
+
+        const channelName = values[channelNameColIndex] || "unknown";
+        const minutesWatchedStr = values[minutesWatchedColIndex] || "0";
+
+        // Convert minutes watched to a number
+        let minutesWatched = 0;
+        try {
+          minutesWatched = parseFloat(minutesWatchedStr);
+          if (isNaN(minutesWatched)) minutesWatched = 0;
+        } catch (e) {
+          minutesWatched = 0;
+          console.error(e);
+        }
+
+        // Add to the total for this channel
+        minutesWatchedCounts[channelName] = (minutesWatchedCounts[channelName] || 0) + minutesWatched;
+      } catch (e) {
+        console.error(`Error processing line ${j}:`, e);
+      }
+    }
+
+    // Allow other tasks to run between chunks
+    if (i < Math.ceil(lines.length / CHUNK_SIZE) - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  // Store the minutes watched stats in the file info
+  fileInfo.minutesWatchedStats = minutesWatchedCounts;
+
+  // Log the minutes watched by channel
+  console.log("Minutes watched by channel:");
+  Object.entries(minutesWatchedCounts)
+    .sort((a, b) => b[1] - a[1]) // Sort by minutes watched, descending
+    .forEach(([channel, minutes]) => {
+      console.log(`${channel}: ${minutes.toFixed(2)} minutes`);
+    });
+
+  console.timeEnd("processMinutesWatched");
+}
+
+async function processRegularCsvFile(zipEntry: JSZip.JSZipObject, fileInfo: FileInfo): Promise<void> {
+  const content = await zipEntry.async("string");
+  const lines = content.split("\n").filter((line) => line.trim() !== "");
+
+  if (lines.length > 0) {
+    const headers = parseCSVLine(lines[0]);
+    fileInfo.headers = headers;
+
+    if (lines.length > 1) {
+      const sampleData: Record<string, string>[] = [];
+      const maxSampleRows = Math.min(3, lines.length - 1);
+
+      for (let i = 1; i <= maxSampleRows; i++) {
+        if (lines[i]) {
+          const values = parseCSVLine(lines[i]);
+          const rowObject: Record<string, string> = {};
+
+          headers.forEach((header, index) => {
+            const value = values[index] || "";
+            if (/^-?\d+(\.\d+)?$/.test(value)) {
+              rowObject[header] = parseFloat(value).toString();
+            } else {
+              rowObject[header] = value;
+            }
+          });
+
+          sampleData.push(rowObject);
+        }
+      }
+
+      fileInfo.data = sampleData;
+    }
+  }
+}
+
 function parseCSVLine(line: string): string[] {
   const result: string[] = [];
   let currentField = "";
@@ -83,7 +272,12 @@ function parseCSVLine(line: string): string[] {
     const char = line[i];
 
     if (char === '"') {
-      inQuotes = !inQuotes;
+      if (i < line.length - 1 && line[i + 1] === '"' && inQuotes) {
+        currentField += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
     } else if (char === "," && !inQuotes) {
       result.push(currentField.trim());
       currentField = "";

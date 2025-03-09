@@ -227,28 +227,26 @@ function ResultsDisplay({ files }: ResultsDisplayProps): JSX.Element {
                     </button>
                   </div>
 
-                  {expandedFile === file.path && (
-                    <div className="mt-4">
-                      {file.type === "csv" && file.headers && (
-                        <div className="mt-2">
-                          <p className="text-sm font-medium mb-2">CSV Headers:</p>
-                          <div className="bg-muted p-3 rounded-md overflow-x-auto">
-                            <code className="text-sm whitespace-nowrap">{file.headers.join(", ")}</code>
-                          </div>
+                  <div className="mt-4">
+                    {file.type === "csv" && file.headers && (
+                      <div className="mt-2">
+                        <p className="text-sm font-medium mb-2">CSV Headers:</p>
+                        <div className="bg-muted p-3 rounded-md overflow-x-auto">
+                          <code className="text-sm whitespace-nowrap">{file.headers.join(", ")}</code>
                         </div>
-                      )}
+                      </div>
+                    )}
 
-                      {file.type === "json" && (
-                        <div className="mt-2">
-                          <p className="text-sm font-medium mb-2">JSON File</p>
-                        </div>
-                      )}
+                    {file.type === "json" && (
+                      <div className="mt-2">
+                        <p className="text-sm font-medium mb-2">JSON File</p>
+                      </div>
+                    )}
 
-                      {file.type !== "csv" && file.type !== "json" && (
-                        <p className="text-sm text-muted-foreground">File type: {file.type || "unknown"}</p>
-                      )}
-                    </div>
-                  )}
+                    {file.type !== "csv" && file.type !== "json" && (
+                      <p className="text-sm text-muted-foreground">File type: {file.type || "unknown"}</p>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
