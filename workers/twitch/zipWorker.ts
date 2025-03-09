@@ -1,5 +1,6 @@
-import JSZip from "jszip";
+"use client";
 
+import JSZip from "jszip";
 interface FileInfo {
   path: string;
   type: string;
