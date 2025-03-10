@@ -122,14 +122,18 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
   const timestampIndex = headers.findIndex((h) => h.toLowerCase() === "timestamp");
   const timestampColIndex = timestampIndex !== -1 ? timestampIndex : 0;
 
+  // Find the server_timestamp column index
+  const serverTimestampIndex = headers.findIndex((h) => h.toLowerCase() === "server_timestamp");
+  const serverTimestampColIndex = serverTimestampIndex !== -1 ? serverTimestampIndex : timestampColIndex;
+
   // Track channels and their counts
   const channelCounts: Record<string, number> = {};
 
   // Track word frequencies
   const wordCounts: Record<string, number> = {};
 
-  // Track chat messages per streamer (first 100 per streamer)
-  const streamerMessages: Record<string, Array<{ body: string; timestamp: string }>> = {};
+  // Track chat messages per streamer (collect all messages first, then sort and limit)
+  const allStreamerMessages: Record<string, Array<{ body: string; timestamp: string; serverTimestamp: string }>> = {};
 
   // Process the file in chunks
   for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
@@ -149,20 +153,25 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
           const bodyText = values[bodyColIndex] || "";
           processTextForWordFrequency(bodyText, wordCounts);
 
-          // Save the message for this streamer if we have less than 100 messages
-          if (!streamerMessages[channel]) {
-            streamerMessages[channel] = [];
+          // Initialize array for this streamer if it doesn't exist
+          if (!allStreamerMessages[channel]) {
+            allStreamerMessages[channel] = [];
           }
 
-          if (streamerMessages[channel].length < 100) {
-            const timestamp =
-              timestampColIndex !== -1 && values.length > timestampColIndex ? values[timestampColIndex] || "" : "";
+          const timestamp =
+            timestampColIndex !== -1 && values.length > timestampColIndex ? values[timestampColIndex] || "" : "";
 
-            streamerMessages[channel].push({
-              body: bodyText,
-              timestamp: timestamp,
-            });
-          }
+          const serverTimestamp =
+            serverTimestampColIndex !== -1 && values.length > serverTimestampColIndex
+              ? values[serverTimestampColIndex] || ""
+              : timestamp;
+
+          // Collect all messages for sorting later
+          allStreamerMessages[channel].push({
+            body: bodyText,
+            timestamp: timestamp,
+            serverTimestamp: serverTimestamp,
+          });
         }
       } catch (e) {
         console.error(`Error processing line ${j}:`, e);
@@ -175,13 +184,28 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
     }
   }
 
+  // Sort and limit messages for each streamer
+  const streamerMessages: Record<string, Array<{ body: string; timestamp: string }>> = {};
+
+  for (const channel in allStreamerMessages) {
+    // Sort messages by server_timestamp in ascending order (earliest to latest)
+    allStreamerMessages[channel].sort((a, b) => {
+      return a.serverTimestamp.localeCompare(b.serverTimestamp);
+    });
+
+    // Take the first 100 messages after sorting
+    streamerMessages[channel] = allStreamerMessages[channel]
+      .slice(0, 100)
+      .map(({ body, timestamp }) => ({ body, timestamp }));
+  }
+
   // Store the channel counts in the file info
   fileInfo.channelStats = channelCounts;
 
   // Store the word frequency in the file info
   fileInfo.wordFrequency = wordCounts;
 
-  // Store the streamer messages in the file info
+  // Store the sorted streamer messages in the file info
   fileInfo.streamerMessages = streamerMessages;
 
   console.timeEnd("processChatMessages");
