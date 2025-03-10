@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UploadWidget from "@/components/UploadWidget";
 import DataTable from "@/components/DataTable";
+import StreamerMessages from "@/components/StreamerMessages";
 
 interface FileInfo {
   path: string;
@@ -18,6 +19,7 @@ interface WorkerData {
   chatChannelFrequency?: Record<string, number>;
   minutesWatchedFrequency?: Record<string, number>;
   wordFrequency?: Record<string, number>;
+  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
   error?: string;
 }
 
@@ -94,14 +96,19 @@ export default function TwitchDataViewer() {
 
       {data && (
         <Tabs defaultValue="chat" className="mt-8">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="chat">Chat Channels</TabsTrigger>
+            <TabsTrigger value="messages">Chat Messages</TabsTrigger>
             <TabsTrigger value="watched">Minutes Watched</TabsTrigger>
             <TabsTrigger value="words">Word Frequency</TabsTrigger>
           </TabsList>
 
           <TabsContent value="chat" className="mt-4">
             <DataTable data={data.chatChannelFrequency} title="Chat Channel Frequency" />
+          </TabsContent>
+
+          <TabsContent value="messages" className="mt-4">
+            <StreamerMessages messages={data.streamerMessages} />
           </TabsContent>
 
           <TabsContent value="watched" className="mt-4">
