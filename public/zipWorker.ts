@@ -9,6 +9,7 @@ interface FileInfo {
   channelStats?: Record<string, number>;
   minutesWatchedStats?: Record<string, number>;
   wordFrequency?: Record<string, number>;
+  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
   error?: string;
 }
 
@@ -21,6 +22,7 @@ interface WorkerResponseData {
   chatChannelFrequency?: Record<string, number>;
   minutesWatchedFrequency?: Record<string, number>;
   wordFrequency?: Record<string, number>;
+  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
   error?: string;
 }
 
@@ -34,12 +36,14 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
     const chatChannelFrequency = chatMessagesFile?.channelStats || {};
     const minutesWatchedFrequency = minutesWatchedFile?.minutesWatchedStats || {};
     const wordFrequency = chatMessagesFile?.wordFrequency || {};
+    const streamerMessages = chatMessagesFile?.streamerMessages || {};
 
     self.postMessage({
       files,
       chatChannelFrequency,
       minutesWatchedFrequency,
       wordFrequency,
+      streamerMessages,
     } as WorkerResponseData);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -95,7 +99,6 @@ async function processZipEntry(zipEntry: JSZip.JSZipObject, path: string): Promi
   }
 }
 
-// COUNTS MESSAGES/STREAMER AND
 async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: FileInfo): Promise<void> {
   console.time("processChatMessages");
   const content = await zipEntry.async("string");
@@ -115,11 +118,18 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
   const bodyIndex = headers.findIndex((h) => h.toLowerCase() === "body_full");
   const bodyColIndex = bodyIndex !== -1 ? bodyIndex : -1;
 
+  // Find the timestamp column index
+  const timestampIndex = headers.findIndex((h) => h.toLowerCase() === "timestamp");
+  const timestampColIndex = timestampIndex !== -1 ? timestampIndex : 0;
+
   // Track channels and their counts
   const channelCounts: Record<string, number> = {};
 
   // Track word frequencies
   const wordCounts: Record<string, number> = {};
+
+  // Track chat messages per streamer (first 100 per streamer)
+  const streamerMessages: Record<string, Array<{ body: string; timestamp: string }>> = {};
 
   // Process the file in chunks
   for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
@@ -138,6 +148,21 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
         if (bodyColIndex !== -1 && values.length > bodyColIndex) {
           const bodyText = values[bodyColIndex] || "";
           processTextForWordFrequency(bodyText, wordCounts);
+
+          // Save the message for this streamer if we have less than 100 messages
+          if (!streamerMessages[channel]) {
+            streamerMessages[channel] = [];
+          }
+
+          if (streamerMessages[channel].length < 100) {
+            const timestamp =
+              timestampColIndex !== -1 && values.length > timestampColIndex ? values[timestampColIndex] || "" : "";
+
+            streamerMessages[channel].push({
+              body: bodyText,
+              timestamp: timestamp,
+            });
+          }
         }
       } catch (e) {
         console.error(`Error processing line ${j}:`, e);
@@ -155,6 +180,9 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
 
   // Store the word frequency in the file info
   fileInfo.wordFrequency = wordCounts;
+
+  // Store the streamer messages in the file info
+  fileInfo.streamerMessages = streamerMessages;
 
   console.timeEnd("processChatMessages");
 }
