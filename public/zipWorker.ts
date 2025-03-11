@@ -115,7 +115,7 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
   const channelColIndex = channelIndex !== -1 ? channelIndex : 10;
 
   // Find the body column index
-  const bodyIndex = headers.findIndex((h) => h.toLowerCase() === "body_full");
+  const bodyIndex = headers.findIndex((h) => h.toLowerCase() === "body");
   const bodyColIndex = bodyIndex !== -1 ? bodyIndex : -1;
 
   // Find the timestamp column index
