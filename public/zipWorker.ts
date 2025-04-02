@@ -1,6 +1,8 @@
 "use client";
 
 import JSZip from "jszip";
+import { storeWorkerData } from "../lib/db";
+
 interface FileInfo {
   path: string;
   type: string;
@@ -38,12 +40,26 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
     const wordFrequency = chatMessagesFile?.wordFrequency || {};
     const streamerMessages = chatMessagesFile?.streamerMessages || {};
 
+    // Store all data in IndexedDB
+    await storeWorkerData({
+      chatChannelFrequency,
+      minutesWatchedFrequency,
+      wordFrequency,
+      streamerMessages,
+    });
+
+    // Send first 100 messages for each channel to frontend
+    const initialMessages: Record<string, Array<{ body: string; timestamp: string }>> = {};
+    for (const [channel, messages] of Object.entries(streamerMessages)) {
+      initialMessages[channel] = messages.slice(0, 100);
+    }
+
     self.postMessage({
       files,
       chatChannelFrequency,
       minutesWatchedFrequency,
       wordFrequency,
-      streamerMessages,
+      streamerMessages: initialMessages,
     } as WorkerResponseData);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -184,20 +200,18 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
     }
   }
 
-  // Sort and limit messages for each streamer
-  const streamerMessages: Record<string, Array<{ body: string; timestamp: string }>> = {};
-
+  // Sort messages by server_timestamp in ascending order
   for (const channel in allStreamerMessages) {
-    // Sort messages by server_timestamp in ascending order (earliest to latest)
-    allStreamerMessages[channel].sort((a, b) => {
-      return a.serverTimestamp.localeCompare(b.serverTimestamp);
-    });
-
-    // Take the first 100 messages after sorting
-    streamerMessages[channel] = allStreamerMessages[channel]
-      .slice(0, 100)
-      .map(({ body, timestamp }) => ({ body, timestamp }));
+    allStreamerMessages[channel].sort((a, b) => a.serverTimestamp.localeCompare(b.serverTimestamp));
   }
+
+  // Store all data in IndexedDB
+  await storeWorkerData({
+    chatChannelFrequency: channelCounts,
+    minutesWatchedFrequency: fileInfo.minutesWatchedStats || {},
+    wordFrequency: wordCounts,
+    streamerMessages: allStreamerMessages,
+  });
 
   // Store the channel counts in the file info
   fileInfo.channelStats = channelCounts;
@@ -205,8 +219,8 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
   // Store the word frequency in the file info
   fileInfo.wordFrequency = wordCounts;
 
-  // Store the sorted streamer messages in the file info
-  fileInfo.streamerMessages = streamerMessages;
+  // Store all messages in the file info
+  fileInfo.streamerMessages = allStreamerMessages;
 
   console.timeEnd("processChatMessages");
 }

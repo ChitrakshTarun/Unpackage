@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Loader2, Upload } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UploadWidget from "@/components/UploadWidget";
 import DataTable from "@/components/DataTable";
 import StreamerMessages from "@/components/StreamerMessages";
 import GeneralStats from "@/components/GeneralStats";
+import { Button } from "@/components/ui/button";
+import { getWorkerData } from "@/lib/db";
 
 interface FileInfo {
   path: string;
@@ -28,11 +30,30 @@ export default function TwitchDataViewer() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<WorkerData | null>(null);
+  const [showUpload, setShowUpload] = useState<boolean>(false);
+
+  useEffect(() => {
+    const loadStoredData = async () => {
+      try {
+        const storedData = await getWorkerData();
+        if (storedData) {
+          setData(storedData);
+        } else {
+          setShowUpload(true);
+        }
+      } catch (error) {
+        console.error("Error loading stored data:", error);
+        setShowUpload(true);
+      }
+    };
+
+    loadStoredData();
+  }, []);
 
   const handleFileUpload = (file: File): void => {
     setIsLoading(true);
     setError(null);
-    setData(null);
+    setShowUpload(false);
 
     let worker: Worker | null = null;
 
@@ -47,7 +68,6 @@ export default function TwitchDataViewer() {
         }
         setIsLoading(false);
         worker?.terminate();
-        console.log("Worker data:", e.data);
       };
 
       worker.onerror = (e: ErrorEvent): void => {
@@ -79,9 +99,17 @@ export default function TwitchDataViewer() {
 
   return (
     <div className="container mx-auto p-4 max-w-4xl">
-      <h1 className="text-3xl font-bold mb-8 text-center">Twitch Data Viewer</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Twitch Data Viewer</h1>
+        {data && (
+          <Button variant="outline" onClick={() => setShowUpload(true)} className="flex items-center gap-2">
+            <Upload className="h-4 w-4" />
+            Upload New Data
+          </Button>
+        )}
+      </div>
 
-      {!isLoading && !data && <UploadWidget onFileUpload={handleFileUpload} />}
+      {showUpload && <UploadWidget onFileUpload={handleFileUpload} />}
 
       {isLoading && (
         <div className="flex flex-col justify-center items-center h-64">

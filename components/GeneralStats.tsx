@@ -10,25 +10,21 @@ interface GeneralStatsProps {
 }
 
 export default function GeneralStats({
-  chatChannelFrequency,
-  minutesWatchedFrequency,
-  wordFrequency,
+  chatChannelFrequency = {},
+  minutesWatchedFrequency = {},
+  wordFrequency = {},
 }: GeneralStatsProps) {
-  if (!chatChannelFrequency || !minutesWatchedFrequency || !wordFrequency) {
-    return null;
-  }
-
   // Calculate total watch time in minutes
   const totalWatchTime = Object.values(minutesWatchedFrequency).reduce((sum, minutes) => sum + minutes, 0);
 
   // Find most active chat channel
-  const mostActiveChannel = Object.entries(chatChannelFrequency).reduce((a, b) => (a[1] > b[1] ? a : b));
+  const mostActiveChannel = Object.entries(chatChannelFrequency).reduce((a, b) => (a[1] > b[1] ? a : b), ["", 0]);
 
   // Calculate total messages
   const totalMessages = Object.values(chatChannelFrequency).reduce((sum, count) => sum + count, 0);
 
   // Find most used word
-  const mostUsedWord = Object.entries(wordFrequency).reduce((a, b) => (a[1] > b[1] ? a : b));
+  const mostUsedWord = Object.entries(wordFrequency).reduce((a, b) => (a[1] > b[1] ? a : b), ["", 0]);
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -47,8 +43,8 @@ export default function GeneralStats({
           <CardTitle className="text-sm font-medium">Most Active Channel</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{mostActiveChannel[0]}</div>
-          <p className="text-xs text-muted-foreground">{mostActiveChannel[1]} messages</p>
+          <div className="text-2xl font-bold">{mostActiveChannel[0] || "N/A"}</div>
+          <p className="text-xs text-muted-foreground">{mostActiveChannel[1].toLocaleString()} messages</p>
         </CardContent>
       </Card>
 
@@ -67,8 +63,8 @@ export default function GeneralStats({
           <CardTitle className="text-sm font-medium">Most Used Word</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{mostUsedWord[0]}</div>
-          <p className="text-xs text-muted-foreground">Used {mostUsedWord[1]} times</p>
+          <div className="text-2xl font-bold">{mostUsedWord[0] || "N/A"}</div>
+          <p className="text-xs text-muted-foreground">Used {mostUsedWord[1].toLocaleString()} times</p>
         </CardContent>
       </Card>
     </div>
