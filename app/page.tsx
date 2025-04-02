@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UploadWidget from "@/components/UploadWidget";
 import DataTable from "@/components/DataTable";
 import StreamerMessages from "@/components/StreamerMessages";
+import GeneralStats from "@/components/GeneralStats";
 
 interface FileInfo {
   path: string;
@@ -46,6 +47,7 @@ export default function TwitchDataViewer() {
         }
         setIsLoading(false);
         worker?.terminate();
+        console.log("Worker data:", e.data);
       };
 
       worker.onerror = (e: ErrorEvent): void => {
@@ -95,30 +97,37 @@ export default function TwitchDataViewer() {
       )}
 
       {data && (
-        <Tabs defaultValue="chat" className="mt-8">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="chat">Chat Channels</TabsTrigger>
-            <TabsTrigger value="messages">Chat Messages</TabsTrigger>
-            <TabsTrigger value="watched">Minutes Watched</TabsTrigger>
-            <TabsTrigger value="words">Word Frequency</TabsTrigger>
-          </TabsList>
+        <>
+          <GeneralStats
+            chatChannelFrequency={data.chatChannelFrequency}
+            minutesWatchedFrequency={data.minutesWatchedFrequency}
+            wordFrequency={data.wordFrequency}
+          />
+          <Tabs defaultValue="chat" className="mt-8">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="chat">Chat Channels</TabsTrigger>
+              <TabsTrigger value="messages">Chat Messages</TabsTrigger>
+              <TabsTrigger value="watched">Minutes Watched</TabsTrigger>
+              <TabsTrigger value="words">Word Frequency</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="chat" className="mt-4">
-            <DataTable data={data.chatChannelFrequency} title="Chat Channel Frequency" />
-          </TabsContent>
+            <TabsContent value="chat" className="mt-4">
+              <DataTable data={data.chatChannelFrequency} title="Chat Channel Frequency" />
+            </TabsContent>
 
-          <TabsContent value="messages" className="mt-4">
-            <StreamerMessages messages={data.streamerMessages} />
-          </TabsContent>
+            <TabsContent value="messages" className="mt-4">
+              <StreamerMessages messages={data.streamerMessages} chatChannelFrequency={data.chatChannelFrequency} />
+            </TabsContent>
 
-          <TabsContent value="watched" className="mt-4">
-            <DataTable data={data.minutesWatchedFrequency} title="Minutes Watched by Channel" />
-          </TabsContent>
+            <TabsContent value="watched" className="mt-4">
+              <DataTable data={data.minutesWatchedFrequency} title="Minutes Watched by Channel" />
+            </TabsContent>
 
-          <TabsContent value="words" className="mt-4">
-            <DataTable data={data.wordFrequency} title="Word Frequency" isWordFrequency={true} />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="words" className="mt-4">
+              <DataTable data={data.wordFrequency} title="Word Frequency" isWordFrequency={true} />
+            </TabsContent>
+          </Tabs>
+        </>
       )}
     </div>
   );
