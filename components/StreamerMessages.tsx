@@ -87,7 +87,7 @@ export default function StreamerMessages({ messages, chatChannelFrequency }: Str
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadedCount, setLoadedCount] = useState(0);
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  // const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // memoize sorting streamers and counting messages
@@ -115,14 +115,13 @@ export default function StreamerMessages({ messages, chatChannelFrequency }: Str
   // Load initial messages when streamer changes
   useEffect(() => {
     if (selectedStreamer && messages) {
-      const initialMessages = messages[selectedStreamer] || [];
-      setDisplayedMessages(sortOrder === "desc" ? [...initialMessages].reverse() : initialMessages);
-      setLoadedCount(initialMessages.length);
+      setDisplayedMessages(messages[selectedStreamer] || []);
+      setLoadedCount(messages[selectedStreamer]?.length || 0);
       setHasMore((chatChannelFrequency?.[selectedStreamer] || 0) > 100);
       // Scroll to top when streamer changes
-      messagesContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      messagesContainerRef.current?.scrollTo({ top: 0, behavior: "instant" });
     }
-  }, [selectedStreamer, messages, chatChannelFrequency, sortOrder]);
+  }, [selectedStreamer, messages, chatChannelFrequency]);
 
   const loadMoreMessages = async () => {
     if (!selectedStreamer || isLoadingMore) return;
@@ -143,10 +142,7 @@ export default function StreamerMessages({ messages, chatChannelFrequency }: Str
           hasMore: newTotalLength < (chatChannelFrequency?.[selectedStreamer] || 0),
         });
 
-        const updatedMessages =
-          sortOrder === "desc" ? [...newMessages, ...displayedMessages] : [...displayedMessages, ...newMessages];
-
-        setDisplayedMessages(updatedMessages);
+        setDisplayedMessages((prev) => [...prev, ...newMessages]);
         setLoadedCount(newTotalLength);
         setHasMore(newTotalLength < (chatChannelFrequency?.[selectedStreamer] || 0));
       } else {
@@ -160,11 +156,6 @@ export default function StreamerMessages({ messages, chatChannelFrequency }: Str
     }
   };
 
-  const toggleSortOrder = () => {
-    setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
-    setDisplayedMessages((prev) => [...prev].reverse());
-  };
-
   if (!messages || Object.keys(messages).length === 0) {
     return <p>No chat messages available</p>;
   }
@@ -175,17 +166,12 @@ export default function StreamerMessages({ messages, chatChannelFrequency }: Str
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Chat Messages</h2>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={toggleSortOrder}>
-            {sortOrder === "asc" ? "Newest First" : "Oldest First"}
-          </Button>
-          <StreamerSelector
-            streamers={streamersData.streamers}
-            selectedStreamer={selectedStreamer}
-            setSelectedStreamer={setSelectedStreamer}
-            messageCount={streamersData.messageCount}
-          />
-        </div>
+        <StreamerSelector
+          streamers={streamersData.streamers}
+          selectedStreamer={selectedStreamer}
+          setSelectedStreamer={setSelectedStreamer}
+          messageCount={streamersData.messageCount}
+        />
       </div>
 
       <Card>
