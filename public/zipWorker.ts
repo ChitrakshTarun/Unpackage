@@ -12,6 +12,9 @@ interface FileInfo {
   minutesWatchedStats?: Record<string, number>;
   wordFrequency?: Record<string, number>;
   streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
+  gameStats?: Record<string, number>;
+  usernames?: string[];
+  platformStats?: Record<string, number>;
   error?: string;
 }
 
@@ -25,6 +28,9 @@ interface WorkerResponseData {
   minutesWatchedFrequency?: Record<string, number>;
   wordFrequency?: Record<string, number>;
   streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
+  gameStats?: Record<string, number>;
+  usernames?: string[];
+  platformStats?: Record<string, number>;
   error?: string;
 }
 
@@ -39,6 +45,9 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
     const minutesWatchedFrequency = minutesWatchedFile?.minutesWatchedStats || {};
     const wordFrequency = chatMessagesFile?.wordFrequency || {};
     const streamerMessages = chatMessagesFile?.streamerMessages || {};
+    const gameStats = minutesWatchedFile?.gameStats || {};
+    const usernames = minutesWatchedFile?.usernames || [];
+    const platformStats = minutesWatchedFile?.platformStats || {};
 
     // Store all data in IndexedDB
     await storeWorkerData({
@@ -46,6 +55,9 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
       minutesWatchedFrequency,
       wordFrequency,
       streamerMessages,
+      gameStats,
+      usernames,
+      platformStats,
     });
 
     // Send first 100 messages for each channel to frontend
@@ -60,6 +72,9 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
       minutesWatchedFrequency,
       wordFrequency,
       streamerMessages: initialMessages,
+      gameStats,
+      usernames,
+      platformStats,
     } as WorkerResponseData);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -258,6 +273,15 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   const minutesWatchedIndex = headers.findIndex((h) => h.toLowerCase() === "minutes_watched_unadjusted");
   const minutesWatchedColIndex = minutesWatchedIndex !== -1 ? minutesWatchedIndex : -1;
 
+  const gameNameIndex = headers.findIndex((h) => h.toLowerCase() === "game_name");
+  const gameNameColIndex = gameNameIndex !== -1 ? gameNameIndex : -1;
+
+  const userLoginIndex = headers.findIndex((h) => h.toLowerCase() === "user_login");
+  const userLoginColIndex = userLoginIndex !== -1 ? userLoginIndex : -1;
+
+  const platformIndex = headers.findIndex((h) => h.toLowerCase() === "platform");
+  const platformColIndex = platformIndex !== -1 ? platformIndex : -1;
+
   if (channelNameColIndex === -1 || minutesWatchedColIndex === -1) {
     console.error("Could not find required columns in minute_watched.csv");
     fileInfo.error = "Missing required columns: channel_name and/or minutes_watched_unadjusted";
@@ -265,6 +289,9 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   }
 
   const minutesWatchedCounts: Record<string, number> = {};
+  const gameStats: Record<string, number> = {};
+  const usernames = new Set<string>();
+  const platformStats: Record<string, number> = {};
 
   for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
     const start = i * CHUNK_SIZE + 1;
@@ -288,6 +315,24 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
         }
 
         minutesWatchedCounts[channelName] = (minutesWatchedCounts[channelName] || 0) + minutesWatched;
+
+        // Process game stats
+        if (gameNameColIndex !== -1 && values.length > gameNameColIndex) {
+          const gameName = values[gameNameColIndex] || "Unknown";
+          gameStats[gameName] = (gameStats[gameName] || 0) + minutesWatched;
+        }
+
+        // Process usernames
+        if (userLoginColIndex !== -1 && values.length > userLoginColIndex) {
+          const username = values[userLoginColIndex];
+          if (username) usernames.add(username);
+        }
+
+        // Process platform stats
+        if (platformColIndex !== -1 && values.length > platformColIndex) {
+          const platform = values[platformColIndex] || "Unknown";
+          platformStats[platform] = (platformStats[platform] || 0) + 1;
+        }
       } catch (e) {
         console.error(`Error processing line ${j}:`, e);
       }
@@ -299,6 +344,9 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   }
 
   fileInfo.minutesWatchedStats = minutesWatchedCounts;
+  fileInfo.gameStats = gameStats;
+  fileInfo.usernames = Array.from(usernames);
+  fileInfo.platformStats = platformStats;
 
   console.timeEnd("processMinutesWatched");
 }

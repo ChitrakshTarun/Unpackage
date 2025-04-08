@@ -10,6 +10,9 @@ interface WorkerData {
   minutesWatchedFrequency?: Record<string, number>;
   wordFrequency?: Record<string, number>;
   streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
+  gameStats?: Record<string, number>;
+  usernames?: string[];
+  platformStats?: Record<string, number>;
   lastUpdated?: string;
 }
 
@@ -70,6 +73,9 @@ export async function storeWorkerData(data: WorkerData): Promise<void> {
     chatChannelFrequency: data.chatChannelFrequency,
     minutesWatchedFrequency: data.minutesWatchedFrequency,
     wordFrequency: data.wordFrequency,
+    gameStats: data.gameStats,
+    usernames: data.usernames,
+    platformStats: data.platformStats,
     lastUpdated: new Date().toISOString(),
   };
   statsStore.put(statsData);
@@ -113,6 +119,9 @@ export async function getWorkerData(): Promise<WorkerData | null> {
             minutesWatchedFrequency: stats.minutesWatchedFrequency,
             wordFrequency: stats.wordFrequency,
             streamerMessages,
+            gameStats: stats.gameStats,
+            usernames: stats.usernames,
+            platformStats: stats.platformStats,
             lastUpdated: stats.lastUpdated,
           });
         }
@@ -199,5 +208,29 @@ export async function getMessageCount(channel: string): Promise<number> {
     const request = index.count(IDBKeyRange.only(channel));
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+  });
+}
+
+export async function clearWorkerData(): Promise<void> {
+  const db = await initDB();
+  const transaction = db.transaction([CHAT_MESSAGES_STORE, STATS_STORE], "readwrite");
+  const chatStore = transaction.objectStore(CHAT_MESSAGES_STORE);
+  const statsStore = transaction.objectStore(STATS_STORE);
+
+  // Clear existing data
+  await Promise.all([
+    new Promise<void>((resolve) => {
+      const clearRequest = chatStore.clear();
+      clearRequest.onsuccess = () => resolve();
+    }),
+    new Promise<void>((resolve) => {
+      const clearRequest = statsStore.clear();
+      clearRequest.onsuccess = () => resolve();
+    }),
+  ]);
+
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
   });
 }

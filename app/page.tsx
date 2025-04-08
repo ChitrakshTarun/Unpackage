@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UploadWidget from "@/components/UploadWidget";
 import DataTable from "@/components/DataTable";
 import StreamerMessages from "@/components/StreamerMessages";
 import GeneralStats from "@/components/GeneralStats";
+import OverviewStats from "@/components/OverviewStats";
 import { Button } from "@/components/ui/button";
-import { getWorkerData } from "@/lib/db";
+import { getWorkerData, clearWorkerData } from "@/lib/db";
 
 interface FileInfo {
   path: string;
@@ -24,6 +25,9 @@ interface WorkerData {
   wordFrequency?: Record<string, number>;
   streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
   error?: string;
+  gameStats?: Record<string, number>;
+  usernames?: string[];
+  platformStats?: Record<string, number>;
 }
 
 export default function TwitchDataViewer() {
@@ -97,15 +101,32 @@ export default function TwitchDataViewer() {
     }
   };
 
+  const handleClearData = async () => {
+    try {
+      await clearWorkerData();
+      setData(null);
+      setShowUpload(true);
+    } catch (error) {
+      console.error("Error clearing data:", error);
+      setError("Failed to clear data");
+    }
+  };
+
   return (
     <div className="container mx-auto p-4 max-w-4xl">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Twitch Data Viewer</h1>
         {data && (
-          <Button variant="outline" onClick={() => setShowUpload(true)} className="flex items-center gap-2">
-            <Upload className="h-4 w-4" />
-            Upload New Data
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowUpload(true)} className="flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Upload New Data
+            </Button>
+            <Button variant="destructive" onClick={handleClearData} className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4" />
+              Remove Data
+            </Button>
+          </div>
         )}
       </div>
 
@@ -131,8 +152,9 @@ export default function TwitchDataViewer() {
             minutesWatchedFrequency={data.minutesWatchedFrequency}
             wordFrequency={data.wordFrequency}
           />
-          <Tabs defaultValue="chat" className="mt-8">
-            <TabsList className="grid w-full grid-cols-4">
+          <Tabs defaultValue="overview" className="mt-8">
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="chat">Chat Channels</TabsTrigger>
               <TabsTrigger value="messages">Chat Messages</TabsTrigger>
               <TabsTrigger value="watched">Minutes Watched</TabsTrigger>
@@ -141,6 +163,14 @@ export default function TwitchDataViewer() {
 
             <TabsContent value="chat" className="mt-4">
               <DataTable data={data.chatChannelFrequency} title="Chat Channel Frequency" />
+            </TabsContent>
+
+            <TabsContent value="overview" className="mt-4">
+              <OverviewStats
+                gameStats={data.gameStats || {}}
+                usernames={data.usernames || []}
+                platformStats={data.platformStats || {}}
+              />
             </TabsContent>
 
             <TabsContent value="messages" className="mt-4">
