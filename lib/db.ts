@@ -11,7 +11,7 @@ interface WorkerData {
   wordFrequency?: Record<string, number>;
   streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
   gameStats?: Record<string, number>;
-  usernames?: string[];
+  usernames?: Array<{ username: string; firstSeen: string; lastSeen: string }>;
   platformStats?: Record<string, number>;
   lastUpdated?: string;
 }

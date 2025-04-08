@@ -1,11 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatDuration } from "@/lib/utils";
+import { formatDuration, toTitleCase } from "@/lib/utils";
 
 interface OverviewStatsProps {
   gameStats: Record<string, number>;
-  usernames: string[];
+  usernames: Array<{ username: string; firstSeen: string; lastSeen: string }>;
   platformStats: Record<string, number>;
+}
+
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString();
 }
 
 export default function OverviewStats({ gameStats, usernames, platformStats }: OverviewStatsProps) {
@@ -16,6 +20,9 @@ export default function OverviewStats({ gameStats, usernames, platformStats }: O
 
   // Sort platforms by usage
   const sortedPlatforms = Object.entries(platformStats).sort(([, a], [, b]) => b - a);
+
+  // Sort usernames by first seen date
+  const sortedUsernames = [...usernames].sort((a, b) => a.firstSeen.localeCompare(b.firstSeen));
 
   return (
     <div className="grid gap-4 grid-cols-2">
@@ -34,7 +41,7 @@ export default function OverviewStats({ gameStats, usernames, platformStats }: O
             <TableBody>
               {sortedGames.map(([game, minutes]) => (
                 <TableRow key={game}>
-                  <TableCell>{game || "Unknown"}</TableCell>
+                  <TableCell>{game ? toTitleCase(game) : "Unknown"}</TableCell>
                   <TableCell className="text-right">{formatDuration(minutes)}</TableCell>
                 </TableRow>
               ))}
@@ -69,16 +76,27 @@ export default function OverviewStats({ gameStats, usernames, platformStats }: O
 
       <Card>
         <CardHeader>
-          <CardTitle>Usernames</CardTitle>
+          <CardTitle>Previous Usernames</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {usernames.map((username) => (
-              <div key={username} className="text-sm">
-                {username || "Unknown"}
-              </div>
-            ))}
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Username</TableHead>
+                <TableHead>First Used</TableHead>
+                <TableHead>Last Used</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedUsernames.map((user) => (
+                <TableRow key={user.username}>
+                  <TableCell>{user.username}</TableCell>
+                  <TableCell>{formatDate(user.firstSeen)}</TableCell>
+                  <TableCell>{formatDate(user.lastSeen)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

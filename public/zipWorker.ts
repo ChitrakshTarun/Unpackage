@@ -13,7 +13,7 @@ interface FileInfo {
   wordFrequency?: Record<string, number>;
   streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
   gameStats?: Record<string, number>;
-  usernames?: string[];
+  usernames?: Array<{ username: string; firstSeen: string; lastSeen: string }>;
   platformStats?: Record<string, number>;
   error?: string;
 }
@@ -29,7 +29,7 @@ interface WorkerResponseData {
   wordFrequency?: Record<string, number>;
   streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
   gameStats?: Record<string, number>;
-  usernames?: string[];
+  usernames?: Array<{ username: string; firstSeen: string; lastSeen: string }>;
   platformStats?: Record<string, number>;
   error?: string;
 }
@@ -282,6 +282,9 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   const platformIndex = headers.findIndex((h) => h.toLowerCase() === "platform");
   const platformColIndex = platformIndex !== -1 ? platformIndex : -1;
 
+  const dayIndex = headers.findIndex((h) => h.toLowerCase() === "day");
+  const dayColIndex = dayIndex !== -1 ? dayIndex : -1;
+
   if (channelNameColIndex === -1 || minutesWatchedColIndex === -1) {
     console.error("Could not find required columns in minute_watched.csv");
     fileInfo.error = "Missing required columns: channel_name and/or minutes_watched_unadjusted";
@@ -290,7 +293,7 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
 
   const minutesWatchedCounts: Record<string, number> = {};
   const gameStats: Record<string, number> = {};
-  const usernames = new Set<string>();
+  const usernameMap = new Map<string, { firstSeen: string; lastSeen: string }>();
   const platformStats: Record<string, number> = {};
 
   for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
@@ -304,6 +307,7 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
 
         const channelName = values[channelNameColIndex] || "unknown";
         const minutesWatchedStr = values[minutesWatchedColIndex] || "0";
+        const day = dayColIndex !== -1 ? values[dayColIndex] : null;
 
         let minutesWatched = 0;
         try {
@@ -322,10 +326,18 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
           gameStats[gameName] = (gameStats[gameName] || 0) + minutesWatched;
         }
 
-        // Process usernames
-        if (userLoginColIndex !== -1 && values.length > userLoginColIndex) {
+        // Process usernames with dates
+        if (userLoginColIndex !== -1 && values.length > userLoginColIndex && day) {
           const username = values[userLoginColIndex];
-          if (username) usernames.add(username);
+          if (username) {
+            const existing = usernameMap.get(username);
+            if (existing) {
+              if (day < existing.firstSeen) existing.firstSeen = day;
+              if (day > existing.lastSeen) existing.lastSeen = day;
+            } else {
+              usernameMap.set(username, { firstSeen: day, lastSeen: day });
+            }
+          }
         }
 
         // Process platform stats
@@ -345,7 +357,11 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
 
   fileInfo.minutesWatchedStats = minutesWatchedCounts;
   fileInfo.gameStats = gameStats;
-  fileInfo.usernames = Array.from(usernames);
+  fileInfo.usernames = Array.from(usernameMap.entries()).map(([username, dates]) => ({
+    username,
+    firstSeen: dates.firstSeen,
+    lastSeen: dates.lastSeen,
+  }));
   fileInfo.platformStats = platformStats;
 
   console.timeEnd("processMinutesWatched");
