@@ -1,20 +1,11 @@
+import { WorkerData } from "./types";
+
 const DB_NAME = "twitchData";
 const VERSION = 1;
 
 // Store names
 const CHAT_MESSAGES_STORE = "chatMessages";
 const STATS_STORE = "stats";
-
-interface WorkerData {
-  chatChannelFrequency?: Record<string, number>;
-  minutesWatchedFrequency?: Record<string, number>;
-  wordFrequency?: Record<string, number>;
-  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
-  gameStats?: Record<string, number>;
-  usernames?: Array<{ username: string; firstSeen: string; lastSeen: string }>;
-  platformStats?: Record<string, number>;
-  lastUpdated?: string;
-}
 
 export async function initDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -41,22 +32,13 @@ export async function initDB(): Promise<IDBDatabase> {
 }
 
 export async function storeWorkerData(data: WorkerData): Promise<void> {
+  // Clear existing data
+  await clearWorkerData();
+
   const db = await initDB();
   const transaction = db.transaction([CHAT_MESSAGES_STORE, STATS_STORE], "readwrite");
   const chatStore = transaction.objectStore(CHAT_MESSAGES_STORE);
   const statsStore = transaction.objectStore(STATS_STORE);
-
-  // Clear existing data
-  await Promise.all([
-    new Promise<void>((resolve) => {
-      const clearRequest = chatStore.clear();
-      clearRequest.onsuccess = () => resolve();
-    }),
-    new Promise<void>((resolve) => {
-      const clearRequest = statsStore.clear();
-      clearRequest.onsuccess = () => resolve();
-    }),
-  ]);
 
   // Store chat messages
   if (data.streamerMessages) {

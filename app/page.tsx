@@ -10,25 +10,7 @@ import GeneralStats from "@/components/GeneralStats";
 import OverviewStats from "@/components/OverviewStats";
 import { Button } from "@/components/ui/button";
 import { getWorkerData, clearWorkerData } from "@/lib/db";
-
-interface FileInfo {
-  path: string;
-  type: string;
-  headers?: string[];
-  error?: string;
-}
-
-interface WorkerData {
-  files?: FileInfo[];
-  chatChannelFrequency?: Record<string, number>;
-  minutesWatchedFrequency?: Record<string, number>;
-  wordFrequency?: Record<string, number>;
-  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
-  error?: string;
-  gameStats?: Record<string, number>;
-  usernames?: string[];
-  platformStats?: Record<string, number>;
-}
+import { WorkerData } from "@/lib/types";
 
 export default function TwitchDataViewer() {
   const [isLoading, setIsLoading] = useState<boolean>(false);

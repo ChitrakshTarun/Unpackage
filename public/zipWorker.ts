@@ -2,37 +2,7 @@
 
 import JSZip from "jszip";
 import { storeWorkerData } from "../lib/db";
-
-interface FileInfo {
-  path: string;
-  type: string;
-  headers?: string[];
-  data?: Record<string, string>[];
-  channelStats?: Record<string, number>;
-  minutesWatchedStats?: Record<string, number>;
-  wordFrequency?: Record<string, number>;
-  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
-  gameStats?: Record<string, number>;
-  usernames?: Array<{ username: string; firstSeen: string; lastSeen: string }>;
-  platformStats?: Record<string, number>;
-  error?: string;
-}
-
-interface WorkerMessageData {
-  file: ArrayBuffer;
-}
-
-interface WorkerResponseData {
-  files?: FileInfo[];
-  chatChannelFrequency?: Record<string, number>;
-  minutesWatchedFrequency?: Record<string, number>;
-  wordFrequency?: Record<string, number>;
-  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
-  gameStats?: Record<string, number>;
-  usernames?: Array<{ username: string; firstSeen: string; lastSeen: string }>;
-  platformStats?: Record<string, number>;
-  error?: string;
-}
+import { FileInfo, WorkerMessageData, WorkerData } from "../lib/types";
 
 self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<void> {
   try {
@@ -75,10 +45,10 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
       gameStats,
       usernames,
       platformStats,
-    } as WorkerResponseData);
+    } as WorkerData);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    self.postMessage({ error: errorMessage } as WorkerResponseData);
+    self.postMessage({ error: errorMessage } as WorkerData);
   }
 };
 
