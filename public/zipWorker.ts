@@ -1,30 +1,8 @@
 "use client";
 
 import JSZip from "jszip";
-interface FileInfo {
-  path: string;
-  type: string;
-  headers?: string[];
-  data?: Record<string, string>[];
-  channelStats?: Record<string, number>;
-  minutesWatchedStats?: Record<string, number>;
-  wordFrequency?: Record<string, number>;
-  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
-  error?: string;
-}
-
-interface WorkerMessageData {
-  file: ArrayBuffer;
-}
-
-interface WorkerResponseData {
-  files?: FileInfo[];
-  chatChannelFrequency?: Record<string, number>;
-  minutesWatchedFrequency?: Record<string, number>;
-  wordFrequency?: Record<string, number>;
-  streamerMessages?: Record<string, Array<{ body: string; timestamp: string }>>;
-  error?: string;
-}
+import { storeWorkerData } from "../lib/db";
+import { FileInfo, WorkerMessageData, WorkerData } from "../lib/types";
 
 self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<void> {
   try {
@@ -37,17 +15,40 @@ self.onmessage = async function (e: MessageEvent<WorkerMessageData>): Promise<vo
     const minutesWatchedFrequency = minutesWatchedFile?.minutesWatchedStats || {};
     const wordFrequency = chatMessagesFile?.wordFrequency || {};
     const streamerMessages = chatMessagesFile?.streamerMessages || {};
+    const gameStats = minutesWatchedFile?.gameStats || {};
+    const usernames = minutesWatchedFile?.usernames || [];
+    const platformStats = minutesWatchedFile?.platformStats || {};
+
+    // Store all data in IndexedDB
+    await storeWorkerData({
+      chatChannelFrequency,
+      minutesWatchedFrequency,
+      wordFrequency,
+      streamerMessages,
+      gameStats,
+      usernames,
+      platformStats,
+    });
+
+    // Send first 100 messages for each channel to frontend
+    const initialMessages: Record<string, Array<{ body: string; timestamp: string }>> = {};
+    for (const [channel, messages] of Object.entries(streamerMessages)) {
+      initialMessages[channel] = messages.slice(0, 100);
+    }
 
     self.postMessage({
       files,
       chatChannelFrequency,
       minutesWatchedFrequency,
       wordFrequency,
-      streamerMessages,
-    } as WorkerResponseData);
+      streamerMessages: initialMessages,
+      gameStats,
+      usernames,
+      platformStats,
+    } as WorkerData);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    self.postMessage({ error: errorMessage } as WorkerResponseData);
+    self.postMessage({ error: errorMessage } as WorkerData);
   }
 };
 
@@ -184,20 +185,18 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
     }
   }
 
-  // Sort and limit messages for each streamer
-  const streamerMessages: Record<string, Array<{ body: string; timestamp: string }>> = {};
-
+  // Sort messages by server_timestamp in ascending order
   for (const channel in allStreamerMessages) {
-    // Sort messages by server_timestamp in ascending order (earliest to latest)
-    allStreamerMessages[channel].sort((a, b) => {
-      return a.serverTimestamp.localeCompare(b.serverTimestamp);
-    });
-
-    // Take the first 100 messages after sorting
-    streamerMessages[channel] = allStreamerMessages[channel]
-      .slice(0, 100)
-      .map(({ body, timestamp }) => ({ body, timestamp }));
+    allStreamerMessages[channel].sort((a, b) => a.serverTimestamp.localeCompare(b.serverTimestamp));
   }
+
+  // Store all data in IndexedDB
+  await storeWorkerData({
+    chatChannelFrequency: channelCounts,
+    minutesWatchedFrequency: fileInfo.minutesWatchedStats || {},
+    wordFrequency: wordCounts,
+    streamerMessages: allStreamerMessages,
+  });
 
   // Store the channel counts in the file info
   fileInfo.channelStats = channelCounts;
@@ -205,8 +204,8 @@ async function processChatMessagesFile(zipEntry: JSZip.JSZipObject, fileInfo: Fi
   // Store the word frequency in the file info
   fileInfo.wordFrequency = wordCounts;
 
-  // Store the sorted streamer messages in the file info
-  fileInfo.streamerMessages = streamerMessages;
+  // Store all messages in the file info
+  fileInfo.streamerMessages = allStreamerMessages;
 
   console.timeEnd("processChatMessages");
 }
@@ -244,6 +243,18 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   const minutesWatchedIndex = headers.findIndex((h) => h.toLowerCase() === "minutes_watched_unadjusted");
   const minutesWatchedColIndex = minutesWatchedIndex !== -1 ? minutesWatchedIndex : -1;
 
+  const gameNameIndex = headers.findIndex((h) => h.toLowerCase() === "game_name");
+  const gameNameColIndex = gameNameIndex !== -1 ? gameNameIndex : -1;
+
+  const userLoginIndex = headers.findIndex((h) => h.toLowerCase() === "user_login");
+  const userLoginColIndex = userLoginIndex !== -1 ? userLoginIndex : -1;
+
+  const platformIndex = headers.findIndex((h) => h.toLowerCase() === "platform");
+  const platformColIndex = platformIndex !== -1 ? platformIndex : -1;
+
+  const dayIndex = headers.findIndex((h) => h.toLowerCase() === "day");
+  const dayColIndex = dayIndex !== -1 ? dayIndex : -1;
+
   if (channelNameColIndex === -1 || minutesWatchedColIndex === -1) {
     console.error("Could not find required columns in minute_watched.csv");
     fileInfo.error = "Missing required columns: channel_name and/or minutes_watched_unadjusted";
@@ -251,6 +262,9 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   }
 
   const minutesWatchedCounts: Record<string, number> = {};
+  const gameStats: Record<string, number> = {};
+  const usernameMap = new Map<string, { firstSeen: string; lastSeen: string }>();
+  const platformStats: Record<string, number> = {};
 
   for (let i = 0; i < Math.ceil(lines.length / CHUNK_SIZE); i++) {
     const start = i * CHUNK_SIZE + 1;
@@ -263,6 +277,7 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
 
         const channelName = values[channelNameColIndex] || "unknown";
         const minutesWatchedStr = values[minutesWatchedColIndex] || "0";
+        const day = dayColIndex !== -1 ? values[dayColIndex] : null;
 
         let minutesWatched = 0;
         try {
@@ -274,6 +289,32 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
         }
 
         minutesWatchedCounts[channelName] = (minutesWatchedCounts[channelName] || 0) + minutesWatched;
+
+        // Process game stats
+        if (gameNameColIndex !== -1 && values.length > gameNameColIndex) {
+          const gameName = values[gameNameColIndex] || "Unknown";
+          gameStats[gameName] = (gameStats[gameName] || 0) + minutesWatched;
+        }
+
+        // Process usernames with dates
+        if (userLoginColIndex !== -1 && values.length > userLoginColIndex && day) {
+          const username = values[userLoginColIndex];
+          if (username) {
+            const existing = usernameMap.get(username);
+            if (existing) {
+              if (day < existing.firstSeen) existing.firstSeen = day;
+              if (day > existing.lastSeen) existing.lastSeen = day;
+            } else {
+              usernameMap.set(username, { firstSeen: day, lastSeen: day });
+            }
+          }
+        }
+
+        // Process platform stats
+        if (platformColIndex !== -1 && values.length > platformColIndex) {
+          const platform = values[platformColIndex] || "Unknown";
+          platformStats[platform] = (platformStats[platform] || 0) + 1;
+        }
       } catch (e) {
         console.error(`Error processing line ${j}:`, e);
       }
@@ -285,6 +326,13 @@ async function processMinutesWatchedFile(zipEntry: JSZip.JSZipObject, fileInfo: 
   }
 
   fileInfo.minutesWatchedStats = minutesWatchedCounts;
+  fileInfo.gameStats = gameStats;
+  fileInfo.usernames = Array.from(usernameMap.entries()).map(([username, dates]) => ({
+    username,
+    firstSeen: dates.firstSeen,
+    lastSeen: dates.lastSeen,
+  }));
+  fileInfo.platformStats = platformStats;
 
   console.timeEnd("processMinutesWatched");
 }

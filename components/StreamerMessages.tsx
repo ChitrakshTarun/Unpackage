@@ -5,42 +5,40 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "./ui/command";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
+import { getMessages } from "@/lib/db";
 
 interface StreamerMessagesProps {
   messages: Record<string, Array<{ body: string; timestamp: string }>> | undefined;
+  chatChannelFrequency?: Record<string, number>;
 }
 
 const StreamerSelector = ({
   streamers,
   selectedStreamer,
   setSelectedStreamer,
-  messageCount
+  messageCount,
 }: {
-  streamers: string[],
-  selectedStreamer: string,
-  setSelectedStreamer: (streamer: string) => void,
-  messageCount: Record<string, number>
+  streamers: string[];
+  selectedStreamer: string;
+  setSelectedStreamer: (streamer: string) => void;
+  messageCount: Record<string, number>;
 }) => {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const sortedStreamers = streamers.sort((a, b) => messageCount[b] - messageCount[a]);
 
   const scrollToTop = () => {
     if (popoverRef.current) {
       popoverRef.current.scrollTop = 0;
     }
-  }
+  };
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-[200px] justify-between"
-        >
+        <Button variant="outline" role="combobox" aria-expanded={open} className="w-[200px] justify-between">
           {selectedStreamer || "Select streamer..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -51,7 +49,7 @@ const StreamerSelector = ({
           <CommandList ref={popoverRef}>
             <CommandEmpty>No streamer found.</CommandEmpty>
             <CommandGroup>
-              {streamers.map((streamer) => (
+              {sortedStreamers.map((streamer) => (
                 <CommandItem
                   key={streamer}
                   value={streamer}
@@ -60,12 +58,7 @@ const StreamerSelector = ({
                     setOpen(false);
                   }}
                 >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      selectedStreamer === streamer ? "opacity-100" : "opacity-0"
-                    )}
-                  />
+                  <Check className={cn("mr-2 h-4 w-4", selectedStreamer === streamer ? "opacity-100" : "opacity-0")} />
                   {streamer} ({messageCount[streamer]})
                 </CommandItem>
               ))}
@@ -76,7 +69,6 @@ const StreamerSelector = ({
     </Popover>
   );
 };
-
 
 const formatTimestamp = (timestamp: string) => {
   if (!timestamp) return "";
@@ -89,8 +81,14 @@ const formatTimestamp = (timestamp: string) => {
   }
 };
 
-export default function StreamerMessages({ messages }: StreamerMessagesProps) {
+export default function StreamerMessages({ messages, chatChannelFrequency }: StreamerMessagesProps) {
   const [selectedStreamer, setSelectedStreamer] = useState<string>("");
+  const [displayedMessages, setDisplayedMessages] = useState<Array<{ body: string; timestamp: string }>>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadedCount, setLoadedCount] = useState(0);
+  // const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // memoize sorting streamers and counting messages
   const streamersData = useMemo(() => {
@@ -100,12 +98,12 @@ export default function StreamerMessages({ messages }: StreamerMessagesProps) {
 
     const streamers = Object.keys(messages).sort();
     const messageCount = streamers.reduce((acc, streamer) => {
-      acc[streamer] = messages[streamer].length;
+      acc[streamer] = chatChannelFrequency?.[streamer] || 0;
       return acc;
     }, {} as Record<string, number>);
 
     return { streamers, messageCount };
-  }, [messages]);
+  }, [messages, chatChannelFrequency]);
 
   // Set streamer 1 as default streamer on first render
   useEffect(() => {
@@ -114,11 +112,55 @@ export default function StreamerMessages({ messages }: StreamerMessagesProps) {
     }
   }, [selectedStreamer, streamersData.streamers]);
 
+  // Load initial messages when streamer changes
+  useEffect(() => {
+    if (selectedStreamer && messages) {
+      setDisplayedMessages(messages[selectedStreamer] || []);
+      setLoadedCount(messages[selectedStreamer]?.length || 0);
+      setHasMore((chatChannelFrequency?.[selectedStreamer] || 0) > 100);
+      // Scroll to top when streamer changes
+      messagesContainerRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [selectedStreamer, messages, chatChannelFrequency]);
+
+  const loadMoreMessages = async () => {
+    if (!selectedStreamer || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      console.log("[loadMoreMessages] Starting to load more messages");
+      console.log("[loadMoreMessages] Params:", { selectedStreamer, loadedCount });
+
+      const newMessages = await getMessages(selectedStreamer, 100, loadedCount);
+      console.log("[loadMoreMessages] Fetched messages:", { count: newMessages.length });
+
+      if (newMessages.length > 0) {
+        const newTotalLength = loadedCount + newMessages.length;
+        console.log("[loadMoreMessages] Updating state:", {
+          newTotalLength,
+          totalAvailable: chatChannelFrequency?.[selectedStreamer],
+          hasMore: newTotalLength < (chatChannelFrequency?.[selectedStreamer] || 0),
+        });
+
+        setDisplayedMessages((prev) => [...prev, ...newMessages]);
+        setLoadedCount(newTotalLength);
+        setHasMore(newTotalLength < (chatChannelFrequency?.[selectedStreamer] || 0));
+      } else {
+        console.log("[loadMoreMessages] No more messages to load");
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error("Error loading more messages:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   if (!messages || Object.keys(messages).length === 0) {
     return <p>No chat messages available</p>;
   }
 
-  const streamerMessages = selectedStreamer ? messages[selectedStreamer] : [];
+  const totalMessages = chatChannelFrequency?.[selectedStreamer] || 0;
 
   return (
     <div className="space-y-4">
@@ -134,17 +176,44 @@ export default function StreamerMessages({ messages }: StreamerMessagesProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>First 100 messages for {selectedStreamer}</CardTitle>
+          <CardTitle>
+            {totalMessages > 100 ? (
+              <>
+                First {displayedMessages.length} of {totalMessages.toLocaleString()} messages for {selectedStreamer}
+              </>
+            ) : (
+              <>
+                All {totalMessages.toLocaleString()} messages for {selectedStreamer}
+              </>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2 max-h-[500px] overflow-y-auto">
-            {streamerMessages.length > 0 ? (
-              streamerMessages.map((msg, index) => (
-                <div key={index} className="border rounded-md p-3">
-                  <div className="text-sm text-muted-foreground mb-1">{formatTimestamp(msg.timestamp)}</div>
-                  <div className="whitespace-pre-wrap break-words">{msg.body}</div>
-                </div>
-              ))
+          <div ref={messagesContainerRef} className="space-y-2 max-h-[500px] overflow-y-auto">
+            {displayedMessages.length > 0 ? (
+              <>
+                {displayedMessages.map((msg, index) => (
+                  <div key={index} className="border rounded-md p-3">
+                    <div className="text-sm text-muted-foreground mb-1">{formatTimestamp(msg.timestamp)}</div>
+                    <div className="whitespace-pre-wrap break-words">{msg.body}</div>
+                  </div>
+                ))}
+                {hasMore && (
+                  <div className="flex justify-center py-4">
+                    <Button variant="outline" onClick={loadMoreMessages} disabled={isLoadingMore}>
+                      {isLoadingMore ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        "Load More Messages"
+                      )}
+                    </Button>
+                  </div>
+                )}
+                <div />
+              </>
             ) : (
               <p className="text-center py-4">No messages available for this streamer</p>
             )}
